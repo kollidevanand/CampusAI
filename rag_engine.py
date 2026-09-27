@@ -1,7 +1,5 @@
 import os
 
-# Streamlit is used for Cloud deployment secrets.
-# This remains optional so the file also works locally.
 try:
     import streamlit as st
 except ImportError:
@@ -13,68 +11,60 @@ try:
 except ImportError:
     pass
 
+try:
+    from google import genai
+except ImportError as exc:
+    raise ImportError(
+        "google-genai is not installed. Run: "
+        "python -m pip install -U google-genai python-dotenv"
+    ) from exc
 
-def get_config_value(name, default=""):
-    """Read configuration from environment variables or Streamlit secrets.
 
-    Local development:
-        .env -> os.environ
-
-    Streamlit Cloud:
-        Settings -> Secrets -> st.secrets
-    """
+def get_secret(name, default=""):
+    """Read a value from environment variables first, then Streamlit Secrets."""
     value = os.getenv(name, "").strip()
     if value:
         return value
 
     if st is not None:
         try:
-            secret_value = st.secrets.get(name, default)
-            if secret_value is not None:
-                secret_value = str(secret_value).strip()
-                if secret_value:
-                    return secret_value
+            value = str(st.secrets.get(name, default)).strip()
+            if value:
+                return value
         except Exception:
-            # Secrets may not be configured during local execution.
+            # st.secrets may not exist when running locally without secrets.toml
             pass
 
     return default
-
-try:
-    from google import genai
-except ImportError as exc:
-    raise ImportError(
-        "google-genai is not installed. Run: python -m pip install -U google-genai python-dotenv"
-    ) from exc
 
 
 class RAGEngine:
     """Gemini-only answer engine for CampusAI.
 
-    This version intentionally does NOT use:
-    - Ollama
-    - ChromaDB
-    - sentence-transformers
-    - sample_college_faq.txt
-    - any local knowledge-base file
-
-    The app.py interface remains compatible with the existing CampusAI UI.
+    No Ollama, ChromaDB, sentence-transformers, or local FAQ files are used.
+    The class keeps the same answer() interface expected by app.py.
     """
 
     def __init__(self):
-        self.gemini_api_key = get_config_value("GEMINI_API_KEY")
-        self.gemini_model = get_config_value("GEMINI_MODEL", "gemini-3.5-flash-lite")
+        self.gemini_api_key = get_secret("GEMINI_API_KEY")
+        self.gemini_model = get_secret(
+            "GEMINI_MODEL",
+            "gemini-3.5-flash-lite",
+        )
 
         if not self.gemini_api_key:
             raise Exception(
-                "GEMINI_API_KEY is not configured. Add it to Streamlit Cloud Secrets or your local .env file."
+                "GEMINI_API_KEY is missing. "
+                "Open Streamlit Cloud -> your app -> Settings -> Secrets "
+                "and add GEMINI_API_KEY."
             )
 
         self.client = genai.Client(api_key=self.gemini_api_key)
-        print(f"✅ CampusAI Gemini API enabled: {self.gemini_model}")
-        print("✅ Ollama disabled")
-        print("✅ ChromaDB disabled")
-        print("✅ Local FAQ files disabled")
+
+        print(f"CampusAI Gemini API enabled: {self.gemini_model}")
+        print("Ollama disabled")
+        print("ChromaDB disabled")
+        print("Local FAQ files disabled")
 
     def answer(
         self,
@@ -94,9 +84,16 @@ class RAGEngine:
 
         style_map = {
             "concise": "Be concise and answer in a few clear sentences.",
-            "detailed": "Give a clear, useful answer with enough detail to understand the topic.",
-            "balanced": "Give a balanced answer with the key points and moderate detail.",
+            "detailed": (
+                "Give a clear, useful answer with enough detail "
+                "to understand the topic."
+            ),
+            "balanced": (
+                "Give a balanced answer with the key points "
+                "and moderate detail."
+            ),
         }
+
         style_instruction = style_map.get(
             str(response_style).lower(),
             style_map["detailed"],
@@ -110,12 +107,18 @@ class RAGEngine:
                 content = message.get("content")
                 if role in {"user", "assistant"} and content:
                     lines.append(f"{role.capitalize()}: {content}")
+
             if lines:
-                history_text = "\n\nRecent conversation:\n" + "\n".join(lines)
+                history_text = (
+                    "\n\nRecent conversation:\n"
+                    + "\n".join(lines)
+                )
 
         personalization_text = ""
         if user_context:
-            personalization_text = f"\n\nUser context:\n{user_context}"
+            personalization_text = (
+                f"\n\nUser context:\n{user_context}"
+            )
 
         prompt = f"""
 You are CampusAI, a helpful and accurate AI assistant for students.
@@ -132,8 +135,8 @@ Never write labels such as:
 
 Do not repeat the user's question before answering.
 Do not claim you used a source you did not use.
-If you are uncertain about a college-specific fact, clearly say that you are not certain
-rather than inventing a specific fact.
+If you are uncertain about a college-specific fact, clearly say that you are not
+certain rather than inventing a specific fact.
 
 Response style:
 {style_instruction}
@@ -153,6 +156,7 @@ Write only the final answer.
             )
 
             answer_text = getattr(response, "text", None)
+
             if not answer_text:
                 raise Exception("Gemini returned an empty response.")
 
@@ -161,5 +165,6 @@ Write only the final answer.
                 "sources": [],
                 "retrieved_chunks": [],
             }
+
         except Exception as exc:
             raise Exception(f"Gemini API error: {exc}") from exc
