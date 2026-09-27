@@ -1,10 +1,44 @@
 import os
 
+# Streamlit is used for Cloud deployment secrets.
+# This remains optional so the file also works locally.
+try:
+    import streamlit as st
+except ImportError:
+    st = None
+
 try:
     from dotenv import load_dotenv
     load_dotenv()
 except ImportError:
     pass
+
+
+def get_config_value(name, default=""):
+    """Read configuration from environment variables or Streamlit secrets.
+
+    Local development:
+        .env -> os.environ
+
+    Streamlit Cloud:
+        Settings -> Secrets -> st.secrets
+    """
+    value = os.getenv(name, "").strip()
+    if value:
+        return value
+
+    if st is not None:
+        try:
+            secret_value = st.secrets.get(name, default)
+            if secret_value is not None:
+                secret_value = str(secret_value).strip()
+                if secret_value:
+                    return secret_value
+        except Exception:
+            # Secrets may not be configured during local execution.
+            pass
+
+    return default
 
 try:
     from google import genai
@@ -28,12 +62,12 @@ class RAGEngine:
     """
 
     def __init__(self):
-        self.gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
-        self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip()
+        self.gemini_api_key = get_config_value("GEMINI_API_KEY")
+        self.gemini_model = get_config_value("GEMINI_MODEL", "gemini-3.5-flash-lite")
 
         if not self.gemini_api_key:
             raise Exception(
-                "GEMINI_API_KEY is not configured. Add it to your .env file."
+                "GEMINI_API_KEY is not configured. Add it to Streamlit Cloud Secrets or your local .env file."
             )
 
         self.client = genai.Client(api_key=self.gemini_api_key)
