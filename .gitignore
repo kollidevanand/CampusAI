@@ -1,0 +1,33 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+.venv312/
+venv/
+env/
+
+# User data
+users.json
+chat_history.json
+
+# Local databases
+chroma_db/
+data/chroma_db/
+
+# Logs
+*.log
+ingest_log.txt
+
+# Streamlit secrets
+.streamlit/secrets.toml
+
+# OS
+.DS_Store
+Thumbs.db
